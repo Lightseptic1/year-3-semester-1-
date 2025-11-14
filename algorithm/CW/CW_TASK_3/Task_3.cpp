@@ -27,7 +27,6 @@ void fix_height(Node* n) {
     int hr = height(n->right);
     n->h = (hl > hr ? hl : hr) + 1;
 }
-
 // rotate right around y
 Node* rotate_right(Node* y) {
     Node* x = y->left;
@@ -44,7 +43,6 @@ Node* rotate_right(Node* y) {
     // new root of this part
     return x;
 }
-
 // rotate left around x
 Node* rotate_left(Node* x) {
     Node* y = x->right;
@@ -61,7 +59,6 @@ Node* rotate_left(Node* x) {
     // new root of this part
     return y;
 }
-
 // rebalance one node after insert or delete below it
 Node* rebalance(Node* n) {
     fix_height(n);
@@ -101,61 +98,40 @@ Node* insert_node(Node* n, const string& key) {
     return rebalance(n);
 }
 
-Node* min_node(Node* n) {
-    while (n->left != nullptr) n = n->left;
-    return n;
-}
-
-bool contains(Node* n, const string& key) {
-    while (n != nullptr) {
-        if (key < n->key) n = n->left;
-        else if (key > n->key) n = n->right;
-        else return true;
-    }
-    return false;
-}
-
-void inorder(Node* n) {
-    if (n == nullptr) return;
-    inorder(n->left);
-    cout << n->key << ' ';
-    inorder(n->right);
-}
-
 void clear_all(Node* n) {
     if (!n) return;
     clear_all(n->left);
     clear_all(n->right);
     delete n;
 }
-
 // lowercase helper
 static inline void to_lower_inplace(string& s) {
     transform(s.begin(), s.end(), s.begin(),
               [](unsigned char c){ return (char)tolower(c); });
 }
 
-// next bound for range [incom, next_incom(incom))
-static inline string next_incom(const string& incom) {
-    return incom + "{"; // '{' is after 'z' in ASCII, movetood for a..z words
+bool has_prefix(const string& word, const string& prefix) {
+    if (prefix.size() > word.size()) return false;
+    for (size_t i = 0; i < prefix.size(); ++i) {
+        if (word[i] != prefix[i]) return false;
+    }
+    return true;
 }
 
-// print matches live as they are found; 'printed' becomes true if any were printed
-void print_range(Node* n, const string& lo, const string& hi, bool& printed) {
+void autocomplete_dfs(Node* n, const string& incom, bool& printed) {
     if (!n) return;
 
-    if (n->key >= lo) {
-        print_range(n->left, lo, hi, printed);
-    }
+    // visit left subtree
+    autocomplete_dfs(n->left, incom, printed);
 
-    if (n->key >= lo && n->key < hi) {
+    // check this node
+    if (has_prefix(n->key, incom)) {
         cout << n->key << '\n';
         printed = true;
     }
 
-    if (n->key < hi) {
-        print_range(n->right, lo, hi, printed);
-    }
+    // visit right subtree
+    autocomplete_dfs(n->right, incom, printed);
 }
 
 void autocomplete(Node* root, const string& incom) {
@@ -163,9 +139,13 @@ void autocomplete(Node* root, const string& incom) {
         cout << "(no matches)\n";
         return;
     }
+
     bool printed = false;
-    print_range(root, incom, next_incom(incom), printed);
-    if (!printed) cout << "(no matches)\n";
+    autocomplete_dfs(root, incom, printed);
+
+    if (!printed) {
+        cout << "(no matches)\n";
+    }
 }
 
 void challenge(Node* root, const string& unc) {
@@ -212,16 +192,15 @@ int main() {
     to_lower_inplace(word);
     root = insert_node(root, word);
 }
-
     file.close();
+    cout << "Enter incomplete word: ";
     string incom;
     getline(cin, incom);
-
-        to_lower_inplace(incom);
-        cout << "-----\n";
-        autocomplete(root, incom);
-    
-
+    to_lower_inplace(incom);
+    cout << "\nAutocomplete:\n";
+    autocomplete(root, incom);
+    cout << "\nChallenge:\n";
+    challenge(root, incom);
     clear_all(root); // del all
     return 0;
 }

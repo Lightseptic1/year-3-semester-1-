@@ -1,13 +1,13 @@
-# 8-puzzle A* with three heuristics and a five-state benchmark
+
 
 import heapq
 import time
 from collections import deque
 
-# --------------------- Problem setup ---------------------
+
 GOAL = (1, 2, 3,
         4, 5, 6,
-        7, 8, 0)  # 0 is the blank
+        7, 8, 0)  
 
 GOAL_POS = {v: i for i, v in enumerate(GOAL)}
 
@@ -25,7 +25,7 @@ def neighbors_index():
 
 NEIGH = neighbors_index()
 
-# --------------------- Heuristics ---------------------
+
 def h_misplaced(state):
     # count tiles not in place (ignore blank)
     return sum(1 for i, v in enumerate(state) if v and v != GOAL[i])
@@ -88,7 +88,7 @@ HEURISTICS = {
     "linear_conflict": h_linear_conflict
 }
 
-# --------------------- Solvability test ---------------------
+
 def is_solvable(state):
     arr = [v for v in state if v != 0]
     inv = 0
@@ -96,10 +96,10 @@ def is_solvable(state):
         for j in range(i + 1, len(arr)):
             if arr[i] > arr[j]:
                 inv += 1
-    # for 3x3 puzzle, solvable iff inversions even
+
     return inv % 2 == 0
 
-# --------------------- A* search ---------------------
+
 def astar(initial, hfunc):
     if initial == GOAL:
         return True, 0, 0, [initial]
@@ -146,16 +146,16 @@ def reconstruct_path(parent, s):
     path.reverse()
     return path
 
-# --------------------- Five test states ---------------------
+
 TESTS = [
-    ("S0_solved",      (1, 2, 3, 4, 5, 6, 7, 8, 0)),              # solved
-    ("S1_one_move",    (1, 2, 3, 4, 5, 6, 7, 0, 8)),              # solvable, 1 move
-    ("S2_two_moves",   (1, 2, 3, 4, 5, 6, 0, 7, 8)),              # solvable, 2 moves
-    ("S3_hard_31",     (8, 6, 7, 2, 5, 4, 3, 0, 1)),              # known hard, 31 moves
-    ("U1_unsolvable",  (2, 1, 6, 3, 8, 5, 7, 0, 4))               # unsolvable
+    ("S0_solved",      (1, 2, 3, 4, 5, 6, 7, 8, 0)),           
+    ("S1_one_move",    (1, 2, 3, 4, 5, 6, 7, 0, 8)),             
+    ("S2_two_moves",   (1, 2, 3, 4, 5, 6, 0, 7, 8)),             
+    ("S3_hard_31",     (8, 6, 7, 2, 5, 4, 3, 0, 1)),             
+    ("U1_unsolvable",  (2, 1, 6, 3, 8, 5, 7, 0, 4))           
 ]
 
-# --------------------- Run benchmark ---------------------
+
 def print_state(s):
     for r in range(3):
         print(s[3*r:3*r+3])
@@ -184,7 +184,7 @@ def main():
             print(f"    Time: {(t1 - t0) * 1000:.3f} ms")
 
             if solved and name in ("S0_solved", "S1_one_move", "S2_two_moves"):
-                # show path only for the small cases to keep output tidy
+                # show path only for the small cases to keep output manageable
                 print("    Solution path:")
                 for step in path:
                     print_state(step)
