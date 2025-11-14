@@ -1,4 +1,7 @@
 from collections import deque
+import heapq
+import time
+
 maze = [
 (0, 0, 1), (1, 0, 1), (2, 0, 0), (3, 0, 1), (4, 0, 1), (5, 0, 1), (6, 0, 0), (7, 0, 1), (8, 0, 1), (9, 0, 1),
 (0, 1, 0), (1, 1, 1), (2, 1, 0), (3, 1, 1), (4, 1, 0), (5, 1, 1), (6, 1, 1), (7, 1, 0), (8, 1, 1), (9, 1, 0),
@@ -12,17 +15,16 @@ maze = [
 (0, 9, 1), (1, 9, 1), (2, 9, 1), (3, 9, 1), (4, 9, 1), (5, 9, 0), (6, 9, 1), (7, 9, 1), (8, 9, 1), (9, 9, 1)
 ]
 
-W = 10
-H = 10
+W, H = 10, 10
 grid = {(x,y): z for (x,y,z) in maze}
 
-start = (0,0)
-end   = (9,9)
+start, end = (0,0), (9,9)
 
-if grid.get(start,0) != 1 or grid.get(end,0) != 1:
-    raise ValueError("No solution")
+if grid[start] == 0 or grid[end] == 0:
+    raise ValueError("No valid start/end")
 
-def bfs(start, end, grid, W, H):
+# BFS Solver
+def bfs(start, end):
     q = deque([start])
     parent = {start: None}
     moves = [(1,0),(-1,0),(0,1),(0,-1)]
@@ -32,7 +34,7 @@ def bfs(start, end, grid, W, H):
             break
         for dx,dy in moves:
             nx,ny = x+dx, y+dy
-            if 0 <= nx < W and 0 <= ny < H and grid.get((nx,ny),0) == 1 and (nx,ny) not in parent:
+            if 0 <= nx < W and 0 <= ny < H and grid[(nx,ny)] == 1 and (nx,ny) not in parent:
                 parent[(nx,ny)] = (x,y)
                 q.append((nx,ny))
     if end not in parent:
@@ -44,20 +46,75 @@ def bfs(start, end, grid, W, H):
         cur = parent[cur]
     return path[::-1]
 
-path = bfs(start, end, grid, W, H)
+# A* Solver
+def heuristic(a, b):
+    return abs(a[0]-b[0]) + abs(a[1]-b[1])
 
-print("Path length:", 0 if path is None else len(path))
-print("Path:", path)
+def astar(start, end):
+    open_heap = []
+    heapq.heappush(open_heap, (heuristic(start,end), 0, start))
+    parent = {start: None}
+    g_score = {start: 0}
+    moves = [(1,0),(-1,0),(0,1),(0,-1)]
 
-# optional: simple render
-if path:
-    path_set = set(path)
+    while open_heap:
+        _, g, cur = heapq.heappop(open_heap)
+
+        if cur == end:
+            path = []
+            while cur:
+                path.append(cur)
+                cur = parent[cur]
+            return path[::-1]
+
+        x,y = cur
+        for dx,dy in moves:
+            nx,ny = x+dx, y+dy
+            nxt = (nx,ny)
+            if 0 <= nx < W and 0 <= ny < H and grid[nxt] == 1:
+                newg = g + 1
+                if nxt not in g_score or newg < g_score[nxt]:
+                    g_score[nxt] = newg
+                    parent[nxt] = cur
+                    heapq.heappush(open_heap, (newg+heuristic(nxt,end), newg, nxt))
+    return None
+
+# Render
+def render(name, path):
+    print(f"\n{name}")
+    print("Path length:", len(path) if path else 0)
+    print("Path:", path)
+
+    path_set = set(path or [])
     for y in range(H):
         row = []
         for x in range(W):
-            if (x,y) == start: row.append('S')
-            elif (x,y) == end: row.append('E')
-            elif grid[(x,y)] == 0: row.append('0')   # white/blocked
-            elif (x,y) in path_set: row.append('*')  # on path
-            else: row.append('1')                    # black/walkable
+            if (x,y)==start: row.append('S')
+            elif (x,y)==end: row.append('E')
+            elif grid[(x,y)] == 0: row.append('0')
+            elif (x,y) in path_set: row.append('*')
+            else: row.append('1')
         print(' '.join(row))
+
+# Time BFS
+t0 = time.perf_counter()
+path_bfs = bfs(start, end)
+t1 = time.perf_counter()
+
+# Time A*
+t2 = time.perf_counter()
+path_astar = astar(start, end)
+t3 = time.perf_counter()
+
+# Output BFS
+render("BFS", path_bfs)
+print(f"BFS Runtime: {(t1 - t0)*1000:.5f} ms")
+print("BFS Time Complexity:  O(V + E)  → In grid ~ O(W*H)")
+print("BFS Space Complexity: O(V)      → Stores visited & queue\n")
+
+# Output A*
+render("A*", path_astar)
+print(f"A* Runtime: {(t3 - t2)*1000:.5f} ms")
+print("A* Time Complexity (worst): O(V + E)")
+print("A* Space Complexity:       O(V)")
+print("With a good heuristic:     Much fewer nodes expanded, closer to optimal path length growth")
