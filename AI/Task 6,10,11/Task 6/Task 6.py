@@ -32,9 +32,9 @@ def transition_function(state, action, values):
     if not is_valid_state(next_state):
         return None
 
-    intended_value = 0.8 * values[next_state]
-    right_angle_value = 0.1 * values[state]
-    opposite_value = 0.1 * values[state]
+    intended_value = 0.50 * values[next_state]
+    right_angle_value = 0.25 * values[state]
+    opposite_value = 0.25 * values[state]
 
     return intended_value + right_angle_value + opposite_value
 
