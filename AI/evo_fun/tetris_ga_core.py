@@ -7,9 +7,9 @@ WIDTH = 10
 HEIGHT = 20
 
 LINE_CLEAR_BONUS_SINGLE = 40.0
-LINE_CLEAR_BONUS_DOUBLE = 120.0
-LINE_CLEAR_BONUS_TRIPLE = 400.0
-LINE_CLEAR_BONUS_TETRIS = 2000.0
+LINE_CLEAR_BONUS_DOUBLE = 200.0
+LINE_CLEAR_BONUS_TRIPLE = 800.0
+LINE_CLEAR_BONUS_TETRIS = 3000.0
 
 TOP_OUT_PENALTY = -1000.0       
 
@@ -174,16 +174,16 @@ def total_well_depth(board: Board) -> int:
             right_filled = (x == WIDTH - 1) or (board[y][x + 1] != 0)
 
             if left_filled and right_filled:
-                total += 1
+                total += 3
     return total
-
+HOLES_SCALE = 5.0
 def extract_features(board: Board, lines_cleared: int) -> List[float]:
     """
     Compute a simple feature vector from the board and the
     current move outcome. Those features go into the neural net.
     """
     bumpiness, agg_height = bumpiness_and_aggregate_height(board)
-    holes = count_holes(board)
+    holes = count_holes(board) * HOLES_SCALE
     wells = total_well_depth(board)
 
     max_height = 0
