@@ -1,43 +1,29 @@
 import random
 from typing import List, Tuple, Dict, Any
 
+import numpy as np
+
 WIDTH = 10
 HEIGHT = 20
 
-# =========================
-# SCORING / REWARD CONSTANTS
-# =========================
-# These control how the heuristic evaluates a single move / board.
-# You can just change these numbers without touching code below.
-
-# How strongly each feature interacts with the learned weights
-SCORE_LINES_MULTIPLIER = 1.0
-SCORE_HEIGHT_MULTIPLIER = 0.3
-SCORE_HOLES_MULTIPLIER = 1.0
-SCORE_BUMPINESS_MULTIPLIER = 0.4
-
-# Extra bonuses for clearing lines (classic Tetris style)
 LINE_CLEAR_BONUS_SINGLE = 40.0
 LINE_CLEAR_BONUS_DOUBLE = 120.0
 LINE_CLEAR_BONUS_TRIPLE = 400.0
 LINE_CLEAR_BONUS_TETRIS = 2000.0
 
-# Penalty when a move clears no lines
-NO_LINE_PENALTY = 1.0  # subtract this from score
+TOP_OUT_PENALTY = -1000.0       
 
-# Penalty for building too high
-SAFE_HEIGHT = 15                # rows; above this is "too tall"
-HEIGHT_PENALTY_PER_ROW = 1.5   # per row above SAFE_HEIGHT
+NN_INPUT_SIZE = 6
+NN_HIDDEN_SIZE = 16
+NN_OUTPUT_SIZE = 1
 
-# Fitness-level constants (whole game, not individual moves)
-LINES_FITNESS_SCALE = 1.0       # how much each cleared line is worth
-TOP_OUT_PENALTY = -1000.0       # huge negative when board tops out (no moves)
+GENOME_SIZE = (
+    NN_HIDDEN_SIZE * NN_INPUT_SIZE  # W1
+    + NN_HIDDEN_SIZE                # b1
+    + NN_OUTPUT_SIZE * NN_HIDDEN_SIZE  # W2
+    + NN_OUTPUT_SIZE                # b2
+)
 
-# =========================
-# TETRIS DEFINITIONS
-# =========================
-
-# Tetromino shapes: list of rotations, each rotation is list of (x, y) blocks
 TETROMINOES = {
     "I": [
         [(0, 1), (1, 1), (2, 1), (3, 1)],
@@ -156,6 +142,7 @@ def bumpiness_and_aggregate_height(board: Board) -> Tuple[int, int]:
     bumpiness = sum(abs(heights[i] - heights[i + 1]) for i in range(WIDTH - 1))
     return bumpiness, aggregate_height
 
+
 def tetris_line_score(lines_cleared: int) -> float:
     """
     Classic style Tetris scoring for a single piece placement,
@@ -169,36 +156,36 @@ def tetris_line_score(lines_cleared: int) -> float:
     }
     return bonus_map.get(lines_cleared, 0.0)
 
-def evaluate_board(board: Board, lines_cleared: int, weights: Dict[str, float]) -> float:
+
+def total_well_depth(board: Board) -> int:
     """
-    Score a resulting board after dropping one piece.
-    Uses both:
-      - learned weights (GA)
-      - hard-coded constants at the top
+    Compute a simple measure of how deep vertical wells are.
+    A well cell is an empty cell whose left and right neighbors
+    are both filled (or off board at the edges).
+    We sum over all such cells.
+    """
+    total = 0
+    for x in range(WIDTH):
+        for y in range(HEIGHT):
+            if board[y][x] != 0:
+                continue
+
+            left_filled = (x == 0) or (board[y][x - 1] != 0)
+            right_filled = (x == WIDTH - 1) or (board[y][x + 1] != 0)
+
+            if left_filled and right_filled:
+                total += 1
+    return total
+
+def extract_features(board: Board, lines_cleared: int) -> List[float]:
+    """
+    Compute a simple feature vector from the board and the
+    current move outcome. Those features go into the neural net.
     """
     bumpiness, agg_height = bumpiness_and_aggregate_height(board)
     holes = count_holes(board)
     wells = total_well_depth(board)
-    # base weighted sum
-    score = 0.0
-    score += SCORE_LINES_MULTIPLIER * weights["lines"] * lines_cleared
-    score += SCORE_HEIGHT_MULTIPLIER * weights["height"] * agg_height
-    score += SCORE_HOLES_MULTIPLIER * weights["holes"] * holes
-    score += SCORE_BUMPINESS_MULTIPLIER * weights["bumpiness"] * bumpiness
-    score += 1.0 * weights["wells"] * wells
-    # shaped bonus for line clears
-    if lines_cleared > 0:
-        bonus_map = {
-            1: LINE_CLEAR_BONUS_SINGLE,
-            2: LINE_CLEAR_BONUS_DOUBLE,
-            3: LINE_CLEAR_BONUS_TRIPLE,
-            4: LINE_CLEAR_BONUS_TETRIS,
-        }
-        score += bonus_map.get(lines_cleared, 0.0)
-    else:
-        score -= NO_LINE_PENALTY
 
-    # penalty for being too tall
     max_height = 0
     for x in range(WIDTH):
         h_col = 0
@@ -209,10 +196,76 @@ def evaluate_board(board: Board, lines_cleared: int, weights: Dict[str, float]) 
         if h_col > max_height:
             max_height = h_col
 
-    if max_height > SAFE_HEIGHT:
-        score -= HEIGHT_PENALTY_PER_ROW * (max_height - SAFE_HEIGHT)
+    # features:
+    # 0: lines cleared by this move
+    # 1: aggregate column height
+    # 2: holes
+    # 3: bumpiness
+    # 4: well depth
+    # 5: maximum height of any column
+    return [
+        float(lines_cleared),
+        float(agg_height),
+        float(holes),
+        float(bumpiness),
+        float(wells),
+        float(max_height),
+    ]
 
-    return score
+
+def unpack_genome(genome: List[float]):
+    """
+    Convert flat genome into (W1, b1, W2, b2).
+    """
+    if len(genome) != GENOME_SIZE:
+        raise ValueError(f"Genome length {len(genome)} != expected {GENOME_SIZE}")
+
+    g = np.asarray(genome, dtype=np.float32)
+    idx = 0
+
+    # W1
+    w1_size = NN_HIDDEN_SIZE * NN_INPUT_SIZE
+    W1 = g[idx:idx + w1_size].reshape(NN_HIDDEN_SIZE, NN_INPUT_SIZE)
+    idx += w1_size
+
+    # b1
+    b1 = g[idx:idx + NN_HIDDEN_SIZE]
+    idx += NN_HIDDEN_SIZE
+
+    # W2
+    w2_size = NN_OUTPUT_SIZE * NN_HIDDEN_SIZE
+    W2 = g[idx:idx + w2_size].reshape(NN_OUTPUT_SIZE, NN_HIDDEN_SIZE)
+    idx += w2_size
+
+    # b2
+    b2 = g[idx:idx + NN_OUTPUT_SIZE]
+
+    return W1, b1, W2, b2
+
+
+def nn_forward(features: List[float], genome: List[float]) -> float:
+    """
+    One forward pass through the small neural net.
+    """
+    x = np.asarray(features, dtype=np.float32)  # shape (NN_INPUT_SIZE,)
+    W1, b1, W2, b2 = unpack_genome(genome)
+
+    # hidden layer with ReLU
+    h = W1 @ x + b1
+    h = np.maximum(h, 0.0)
+
+    # output layer (linear)
+    out = W2 @ h + b2
+    return float(out[0])
+
+
+def evaluate_board(board: Board, lines_cleared: int, genome: List[float]) -> float:
+    """
+    Score a resulting board after dropping one piece.
+    Now uses a neural network whose parameters are given by genome.
+    """
+    features = extract_features(board, lines_cleared)
+    return nn_forward(features, genome)
 
 
 def all_possible_moves(board: Board, shape_name: str):
@@ -232,8 +285,10 @@ def all_possible_moves(board: Board, shape_name: str):
             new_board, lines_cleared = lock_piece(board, rotation, x, y, piece_id)
             results.append((new_board, lines_cleared, x, rot_index))
     return results
+
+
 def simulate_game(
-    weights: Dict[str, float],
+    genome: List[float],
     max_pieces: int = 200,
     record_steps: bool = False,
 ):
@@ -242,10 +297,12 @@ def simulate_game(
         returns: fitness (Tetris score - top out penalty if any)
     If record_steps is True:
         returns: (total_score, list_of_(board,lines_so_far), topped_out_flag)
+
+    The neural net encoded by genome chooses the best move at each step.
     """
     board = create_board()
     total_lines = 0
-    total_score = 0.0          # NEW: Tetris style score
+    total_score = 0.0
     steps: List[Tuple[Board, int]] = []
     topped_out = False
 
@@ -264,9 +321,9 @@ def simulate_game(
         best_x = 0
         best_rot_index = 0
 
-        # choose best move (still uses heuristic evaluate_board)
+        # choose best move
         for new_board, lines_cleared, x, rot in moves:
-            score = evaluate_board(new_board, lines_cleared, weights)
+            score = evaluate_board(new_board, lines_cleared, genome)
             if best_score is None or score > best_score:
                 best_score = score
                 best_board = new_board
@@ -278,7 +335,6 @@ def simulate_game(
             rotation = TETROMINOES[shape_name][best_rot_index]
             piece_id = PIECE_IDS[shape_name]
 
-            # recompute landing y for chosen move
             y = 0
             while not collision(board, rotation, best_x, y):
                 y += 1
@@ -302,7 +358,7 @@ def simulate_game(
             locked_board, lines_cleared = lock_piece(board, rotation, best_x, y, piece_id)
             board = locked_board
             total_lines += lines_cleared
-            total_score += tetris_line_score(lines_cleared)   # NEW: update score
+            total_score += tetris_line_score(lines_cleared)
 
             # record post clear board as an extra frame with updated total_lines
             steps.append((copy_board(board), total_lines))
@@ -310,86 +366,63 @@ def simulate_game(
             # fast path, no animation
             board = best_board
             total_lines += best_lines
-            total_score += tetris_line_score(best_lines)       # NEW: update score
+            total_score += tetris_line_score(best_lines)
 
     if record_steps:
         # return score for this run, not lines
         return total_score, steps, topped_out
 
-    # Fitness for GA: now based on Tetris score
+    # Fitness for GA: based on Tetris score and a penalty if we top out
     fitness = float(total_score)
     if topped_out:
         fitness += TOP_OUT_PENALTY
     return fitness
 
-# =========================
-# GENETIC ALGORITHM HELPERS
-# =========================
-def total_well_depth(board: Board) -> int:
+
+def random_weights() -> List[float]:
     """
-    Compute a simple measure of how deep vertical wells are.
-    A well cell is an empty cell whose left and right neighbors
-    are both filled (or off board at the edges).
-    We sum over all such cells.
+    Create a random neural network genome.
+    The visualizer still calls this function by name,
+    so we keep the name but it now returns a genome vector.
     """
-    total = 0
-    for x in range(WIDTH):
-        for y in range(HEIGHT):
-            if board[y][x] != 0:
-                continue
-
-            left_filled = (x == 0) or (board[y][x - 1] != 0)
-            right_filled = (x == WIDTH - 1) or (board[y][x + 1] != 0)
-
-            if left_filled and right_filled:
-                total += 1
-    return total
-
-def random_weights() -> Dict[str, float]:
-    # Initial ranges. You can change these to bias evolution.
-    return {
-        "lines": random.uniform(0.0, 6.0),
-        "height": random.uniform(-0.7, 0.2),
-        "holes": random.uniform(-5.0, -0.5),
-        "bumpiness": random.uniform(-0.7, 0.2),
-        "wells": random.uniform(0.0, 3.0),
-    }
+    return [random.uniform(-1.0, 1.0) for _ in range(GENOME_SIZE)]
 
 
-def mutate_weights(weights: Dict[str, float], rate: float = 0.1, scale: float = 0.5) -> Dict[str, float]:
-    new = weights.copy()
-    for key in new:
+def mutate_weights(genome: List[float], rate: float = 0.1, scale: float = 0.5) -> List[float]:
+    new = genome[:]
+    for i in range(len(new)):
         if random.random() < rate:
-            new[key] += random.uniform(-scale, scale)
+            new[i] += random.uniform(-scale, scale)
     return new
 
 
-def crossover_weights(w1: Dict[str, float], w2: Dict[str, float]) -> Dict[str, float]:
-    child = {}
-    for key in w1:
-        child[key] = w1[key] if random.random() < 0.5 else w2[key]
+def crossover_weights(g1: List[float], g2: List[float]) -> List[float]:
+    child = []
+    for a, b in zip(g1, g2):
+        child.append(a if random.random() < 0.5 else b)
     return child
 
 
 def evaluate_population(
-    population: List[Dict[str, float]],
+    population: List[List[float]],
     games_per_individual: int = 3,
 ) -> List[float]:
     fitnesses: List[float] = []
-    for w in population:
+    for genome in population:
         total = 0.0
         for _ in range(games_per_individual):
-            total += float(simulate_game(w))
+            total += float(simulate_game(genome))
         fitnesses.append(total / games_per_individual)
     return fitnesses
 
 
 def evolve_one_generation(
-    population: List[Dict[str, float]],
+    population: List[List[float]],
     elite_size: int = 4,
     mutation_rate: float = 0.15,
     games_per_individual: int = 3,
-) -> Tuple[List[Dict[str, float]], Dict[str, Any]]:
+    global_best_weights: List[float] | None = None,
+) -> Tuple[List[List[float]], Dict[str, Any]]:
     population_size = len(population)
     fitnesses = evaluate_population(population, games_per_individual=games_per_individual)
     paired = list(zip(population, fitnesses))
@@ -401,7 +434,14 @@ def evolve_one_generation(
     best_weights = sorted_population[0]
     best_fitness = sorted_fitnesses[0]
 
-    new_pop: List[Dict[str, float]] = sorted_population[:elite_size]
+    # start next generation with elites from this generation
+    new_pop: List[List[float]] = sorted_population[:elite_size]
+
+    # if we have a global best from previous generations, force it into the population
+    if global_best_weights is not None:
+        # make sure we actually place a copy so we never mutate the stored one
+        new_pop[0] = global_best_weights.copy()
+
     # rest are children from top half
     while len(new_pop) < population_size:
         parent1 = random.choice(sorted_population[: population_size // 2])
@@ -411,7 +451,7 @@ def evolve_one_generation(
         new_pop.append(child)
 
     stats: Dict[str, Any] = {
-        "best_weights": best_weights,
+        "best_weights": best_weights,         # now a genome vector
         "best_fitness": best_fitness,
         "sorted_population": sorted_population,
         "sorted_fitnesses": sorted_fitnesses,

@@ -13,7 +13,6 @@ from tetris_ga_core import (
     evolve_one_generation,
 )
 
-# ==== visual config ====
 CELL_SIZE = 8
 CELL_MARGIN = 1
 BG_COLOR = (15, 15, 25)
@@ -33,9 +32,8 @@ PIECE_COLORS = {
     7: (255, 165, 0),   # L - Orange
 }
 
-LOSS_BORDER_COLOR = (255, 60, 60)  # red box for topped out boards
+LOSS_BORDER_COLOR = (255, 60, 60)  
 
-# None means: show all individuals in the population
 CHILDREN_TO_SHOW = 50
 
 SIDE_PANEL_WIDTH = 320
@@ -75,6 +73,8 @@ def draw_board(
 def run_visual_evolution():
     pygame.init()
     pygame.display.set_caption("Genetic Tetris visual")
+    global_best_weights = None
+    global_best_fitness = float("-inf")
 
     font_small = pygame.font.SysFont("consolas", 12)
     font_big = pygame.font.SysFont("consolas", 18, bold=True)
@@ -82,19 +82,17 @@ def run_visual_evolution():
     clock = pygame.time.Clock()
 
     # GA settings
-    population_size = 30
+    population_size = 100
     generations = 50
     elite_size = 4
     mutation_rate = 0.25
     games_per_individual = 1
     max_pieces_visual = 200
 
-    # initial population
-    population: List[Dict[str, float]] = [random_weights() for _ in range(population_size)]
 
-    screen = None  # we will create it once we know rows / cols
+    population: List[List[float]] = [random_weights() for _ in range(population_size)]
 
-    # track previous generation best fitness for display
+    screen = None 
     prev_best_fit = None
 
     for gen in range(generations):
@@ -104,16 +102,22 @@ def run_visual_evolution():
             elite_size=elite_size,
             mutation_rate=mutation_rate,
             games_per_individual=games_per_individual,
+            global_best_weights=global_best_weights,
         )
-
         sorted_pop = stats["sorted_population"]
         sorted_fit = stats["sorted_fitnesses"]
+        best_weights = stats["best_weights"]  # genome
         best_fit = stats["best_fitness"]
-        best_weights = stats["best_weights"]
 
-        print(f"Generation {gen}: best fitness {best_fit:.2f}, best weights {best_weights}")
+        if best_fit > global_best_fitness:
+            global_best_fitness = best_fit
+            global_best_weights = best_weights.copy()
+        if prev_best_fit is not None and best_fit < prev_best_fit:
+            print(f"Skipping generation {gen} (worse fitness: {best_fit:.2f} < {prev_best_fit:.2f})")
+            continue
 
-        # pick how many children to visualise
+        print(f"Generation {gen}: best fitness {best_fit:.2f}")
+
         if CHILDREN_TO_SHOW is None:
             num_show = len(sorted_pop)
         else:
@@ -122,7 +126,6 @@ def run_visual_evolution():
         children = sorted_pop[:num_show]
         children_fitness = sorted_fit[:num_show]
 
-        # compute grid layout based on num_show
         max_cols = 10
         cols = min(num_show, max_cols)
         rows = max(1, math.ceil(num_show / cols))
@@ -130,19 +133,17 @@ def run_visual_evolution():
         board_w = WIDTH * CELL_SIZE + 2 * CELL_MARGIN
         board_h = HEIGHT * CELL_SIZE + 2 * CELL_MARGIN
 
-        # create / resize window if needed
         win_w = cols * board_w + SIDE_PANEL_WIDTH
         win_h = rows * board_h
         if screen is None or screen.get_width() != win_w or screen.get_height() != win_h:
             screen = pygame.display.set_mode((win_w, win_h))
 
-        # for each child, record one game
-        # runs: list of (total_lines, steps, topped_out)
+
         runs: List[Tuple[int, List, bool]] = []
         max_steps = 0
-        for w in children:
+        for genome in children:
             total_score, steps, topped_out = simulate_game(
-                w,
+                genome,
                 max_pieces=max_pieces_visual,
                 record_steps=True,
             )
@@ -218,10 +219,12 @@ def run_visual_evolution():
                 y += 20
 
             y += 5
-            screen.blit(font_small.render("Best weights:", True, TEXT_COLOR), (panel_x, y))
+            screen.blit(font_small.render("Best genome params:", True, TEXT_COLOR), (panel_x, y))
             y += 18
-            for k, v in best_weights.items():
-                txt = font_small.render(f"{k}: {v:+.3f}", True, TEXT_COLOR)
+
+            # Show first 10 parameters of the best genome
+            for i, v in enumerate(best_weights[:10]):
+                txt = font_small.render(f"w[{i}]: {v:+.3f}", True, TEXT_COLOR)
                 screen.blit(txt, (panel_x, y))
                 y += 16
 
@@ -235,7 +238,7 @@ def run_visual_evolution():
                 txt = font_small.render(f"{idx:02d}: {fit:.2f} lines {live_lines}", True, TEXT_COLOR)
                 screen.blit(txt, (panel_x, y))
                 y += 14
-                # brute guard against drawing offscreen forever
+                # guard against drawing offscreen forever
                 if y > win_h - 40:
                     break
 
